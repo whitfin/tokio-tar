@@ -1,4 +1,4 @@
-<h1 align="center">async-tar</h1>
+<h1 align="center">tokio-tar</h1>
 <div align="center">
  <strong>
    A tar archive reading/writing library for async Rust.
@@ -9,17 +9,17 @@
 
 <div align="center">
   <!-- Crates version -->
-  <a href="https://crates.io/crates/async-tar">
-    <img src="https://img.shields.io/crates/v/async-tar.svg?style=flat-square"
+  <a href="https://crates.io/crates/tokio-tar">
+    <img src="https://img.shields.io/crates/v/tokio-tar.svg?style=flat-square"
     alt="Crates.io version" />
   </a>
   <!-- Downloads -->
-  <a href="https://crates.io/crates/async-tar">
-    <img src="https://img.shields.io/crates/d/async-tar.svg?style=flat-square"
+  <a href="https://crates.io/crates/tokio-tar">
+    <img src="https://img.shields.io/crates/d/tokio-tar.svg?style=flat-square"
       alt="Download" />
   </a>
   <!-- docs.rs docs -->
-  <a href="https://docs.rs/async-tar">
+  <a href="https://docs.rs/tokio-tar">
     <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
       alt="docs.rs docs" />
   </a>
@@ -27,11 +27,11 @@
 
 <div align="center">
   <h3>
-    <a href="https://docs.rs/async-tar">
+    <a href="https://docs.rs/tokio-tar">
       API Docs
     </a>
     <span> | </span>
-    <a href="https://github.com/dignifiedquire/async-tar/releases">
+    <a href="https://github.com/vorot93/tokio-tar/releases">
       Releases
     </a>
   </h3>
@@ -43,13 +43,13 @@
 ## Reading an archive
 
 ```rust,no_run
-use async_std::io::stdin;
-use async_std::prelude::*;
+use tokio::io::stdin;
+use tokio::prelude::*;
 
-use async_tar::Archive;
+use tokio_tar::Archive;
 
 fn main() {
-    async_std::task::block_on(async {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
         let mut ar = Archive::new(stdin());
         let mut entries = ar.entries().unwrap();
         while let Some(file) = entries.next().await {
@@ -63,11 +63,11 @@ fn main() {
 ## Writing an archive
 
 ```rust,no_run
-use async_std::fs::File;
-use async_tar::Builder;
+use tokio::fs::File;
+use tokio_tar::Builder;
 
 fn main() {
-    async_std::task::block_on(async {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
         let file = File::create("foo.tar").await.unwrap();
         let mut a = Builder::new(file);
 

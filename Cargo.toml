@@ -1,10 +1,14 @@
 [package]
-name = "async-tar"
-version = "0.1.1"
-authors = ["dignifiedquire <me@dignifiequire.com>", "Alex Crichton <alex@alexcrichton.com>"]
-homepage = "https://github.com/dignifiedquire/async-tar"
-repository = "https://github.com/dignifiedquire/async-tar"
-documentation = "https://docs.rs/async-tar"
+name = "tokio-tar"
+version = "0.2.0"
+authors = [
+    "Alex Crichton <alex@alexcrichton.com>",
+    "dignifiedquire <me@dignifiequire.com>",
+    "Artem Vorotnikov <artem@vorotnikov.me>"
+]
+homepage = "https://github.com/vorot93/tokio-tar"
+repository = "https://github.com/vorot93/tokio-tar"
+documentation = "https://docs.rs/tokio-tar"
 license = "MIT/Apache-2.0"
 keywords = ["tar", "tarfile", "encoding"]
 readme = "README.md"
@@ -20,12 +24,13 @@ contents are never required to be entirely resident in memory all at once.
 
 [dependencies]
 filetime = "0.2.8"
-async-std = {version = "1.4.0", features = ["unstable"] }
+futures-core = "0.3"
 pin-project = "0.4.6"
+tokio = { version = "0.2.8", features = ["fs", "io-util", "stream"] }
 
 [dev-dependencies]
 tempfile = "3"
-async-std = {version = "1.4.0", features = ["unstable", "attributes"] }
+tokio = { version = "0.2.8", features = ["full"] }
 
 [target."cfg(unix)".dependencies]
 xattr = { version = "0.2", optional = true }

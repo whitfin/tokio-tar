@@ -1,19 +1,17 @@
+use pin_project::pin_project;
 use std::{
     cell::{Cell, RefCell},
     cmp,
-    pin::Pin,
-};
-
-use async_std::{
-    io,
-    io::prelude::*,
     path::Path,
-    prelude::*,
-    stream::Stream,
+    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-use pin_project::pin_project;
+use tokio::{
+    io,
+    prelude::{AsyncRead as Read, *},
+    stream::*,
+};
 
 use crate::pin_cell::PinCell;
 
@@ -219,10 +217,10 @@ impl<R: Read + Unpin + Sync + Send> Archive<R> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_std::fs::File;
-    /// use async_tar::Archive;
+    /// use tokio::fs::File;
+    /// use tokio_tar::Archive;
     ///
     /// let mut ar = Archive::new(File::open("foo.tar").await?);
     /// ar.unpack("foo").await?;
@@ -251,7 +249,7 @@ pub struct Entries<R: Read + Unpin> {
 
 macro_rules! ready_opt_err {
     ($val:expr) => {
-        match async_std::task::ready!($val) {
+        match futures_core::ready!($val) {
             Some(Ok(val)) => val,
             Some(Err(err)) => return Poll::Ready(Some(Err(err))),
             None => return Poll::Ready(None),
@@ -261,7 +259,7 @@ macro_rules! ready_opt_err {
 
 macro_rules! ready_err {
     ($val:expr) => {
-        match async_std::task::ready!($val) {
+        match futures_core::ready!($val) {
             Ok(val) => val,
             Err(err) => return Poll::Ready(Some(Err(err))),
         }
@@ -360,13 +358,13 @@ fn poll_next_raw<R: Read + Unpin>(
         // Seek to the start of the next header in the archive
         let delta = *next - archive.inner.pos.get();
 
-        match async_std::task::ready!(poll_skip(&mut archive, cx, delta)) {
+        match futures_core::ready!(poll_skip(&mut archive, cx, delta)) {
             Ok(_) => {}
             Err(err) => return Poll::Ready(Some(Err(err))),
         }
 
         // EOF is an indicator that we are at the end of the archive.
-        match async_std::task::ready!(poll_try_read_all(&mut archive, cx, header.as_mut_bytes())) {
+        match futures_core::ready!(poll_try_read_all(&mut archive, cx, header.as_mut_bytes())) {
             Ok(true) => {}
             Ok(false) => return Poll::Ready(None),
             Err(err) => return Poll::Ready(Some(Err(err))),
@@ -509,11 +507,8 @@ fn poll_parse_sparse_header<R: Read + Unpin>(
             let mut ext = GnuExtSparseHeader::new();
             ext.isextended[0] = 1;
             while ext.is_extended() {
-                match async_std::task::ready!(poll_try_read_all(
-                    &mut archive,
-                    cx,
-                    ext.as_mut_bytes()
-                )) {
+                match futures_core::ready!(poll_try_read_all(&mut archive, cx, ext.as_mut_bytes()))
+                {
                     Ok(true) => {}
                     Ok(false) => return Poll::Ready(Err(other("failed to read extension"))),
                     Err(err) => return Poll::Ready(Err(err)),
@@ -551,8 +546,7 @@ impl<R: Read + Unpin> Read for Archive<R> {
     ) -> Poll<io::Result<usize>> {
         let mut r = Pin::new(&Pin::new(&mut &*self.inner).obj).borrow_mut();
 
-        let res =
-            async_std::task::ready!(crate::pin_cell::PinMut::as_mut(&mut r).poll_read(cx, into));
+        let res = futures_core::ready!(crate::pin_cell::PinMut::as_mut(&mut r).poll_read(cx, into));
         match res {
             Ok(i) => {
                 self.inner.pos.set(self.inner.pos.get() + i as u64);
@@ -574,7 +568,7 @@ fn poll_try_read_all<R: Read + Unpin>(
 ) -> Poll<io::Result<bool>> {
     let mut read = 0;
     while read < buf.len() {
-        match async_std::task::ready!(Pin::new(&mut source).poll_read(cx, &mut buf[read..])) {
+        match futures_core::ready!(Pin::new(&mut source).poll_read(cx, &mut buf[read..])) {
             Ok(0) => {
                 if read == 0 {
                     return Poll::Ready(Ok(false));
@@ -599,7 +593,7 @@ fn poll_skip<R: Read + Unpin>(
     let mut buf = [0u8; 4096 * 8];
     while amt > 0 {
         let n = cmp::min(amt, buf.len() as u64);
-        match async_std::task::ready!(Pin::new(&mut source).poll_read(cx, &mut buf[..n as usize])) {
+        match futures_core::ready!(Pin::new(&mut source).poll_read(cx, &mut buf[..n as usize])) {
             Ok(n) if n == 0 => {
                 return Poll::Ready(Err(other("unexpected EOF during skip")));
             }

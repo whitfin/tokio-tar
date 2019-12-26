@@ -1,22 +1,22 @@
+use crate::{
+    error::TarError, header::bytes2path, other, pax::pax_extensions, Archive, Header, PaxExtensions,
+};
+use filetime::{self, FileTime};
+use pin_project::{pin_project, project};
 use std::{
     borrow::Cow,
-    cmp, fmt, marker,
+    cmp, fmt,
+    io::{Error, ErrorKind, SeekFrom},
+    marker,
+    path::{Component, Path, PathBuf},
     pin::Pin,
     task::{Context, Poll},
 };
-
-use async_std::{
+use tokio::{
     fs,
     fs::OpenOptions,
-    io::{self, prelude::*, Error, ErrorKind, SeekFrom},
-    path::{Component, Path, PathBuf},
-};
-use pin_project::{pin_project, project};
-
-use filetime::{self, FileTime};
-
-use crate::{
-    error::TarError, header::bytes2path, other, pax::pax_extensions, Archive, Header, PaxExtensions,
+    io,
+    prelude::{AsyncRead as Read, *},
 };
 
 /// A read-only view into an entry of an archive.
@@ -226,11 +226,11 @@ impl<R: Read + Unpin> Entry<R> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_std::fs::File;
-    /// use async_std::prelude::*;
-    /// use async_tar::Archive;
+    /// use tokio::fs::File;
+    /// use tokio::{prelude::*, stream::*};
+    /// use tokio_tar::Archive;
     ///
     /// let mut ar = Archive::new(File::open("foo.tar").await?);
     /// let mut entries = ar.entries()?;
@@ -261,11 +261,11 @@ impl<R: Read + Unpin> Entry<R> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_std::fs::File;
-    /// use async_tar::Archive;
-    /// use async_std::prelude::*;
+    /// use tokio::{fs::File, stream::*};
+    /// use tokio_tar::Archive;
+    /// use tokio::prelude::*;
     ///
     /// let mut ar = Archive::new(File::open("foo.tar").await?);
     /// let mut entries = ar.entries()?;
@@ -343,7 +343,7 @@ impl<R: Read + Unpin> EntryFields<R> {
         let mut buf = Vec::with_capacity(cap as usize);
 
         // Copied from futures::ReadToEnd
-        match async_std::task::ready!(poll_read_all_internal(self, cx, &mut buf)) {
+        match futures_core::ready!(poll_read_all_internal(self, cx, &mut buf)) {
             Ok(_) => Poll::Ready(Ok(buf)),
             Err(err) => Poll::Ready(Err(err)),
         }
@@ -473,7 +473,8 @@ impl<R: Read + Unpin> EntryFields<R> {
             None => return Ok(false),
         };
 
-        if parent.symlink_metadata().await.is_err() {
+        if parent.symlink_metadata().is_err() {
+            println!("create_dir_all {:?}", parent);
             fs::create_dir_all(&parent).await.map_err(|e| {
                 TarError::new(&format!("failed to create `{}`", parent.display()), e)
             })?;
@@ -590,12 +591,12 @@ impl<R: Read + Unpin> EntryFields<R> {
 
             #[cfg(windows)]
             async fn symlink(src: &Path, dst: &Path) -> io::Result<()> {
-                async_std::os::windows::fs::symlink_file(src, dst).await
+                tokio::fs::os::windows::symlink_file(src, dst).await
             }
 
             #[cfg(any(unix, target_os = "redox"))]
             async fn symlink(src: &Path, dst: &Path) -> io::Result<()> {
-                async_std::os::unix::fs::symlink(src, dst).await
+                tokio::fs::os::unix::symlink(src, dst).await
             }
         } else if kind.is_pax_global_extensions()
             || kind.is_pax_local_extensions()
@@ -725,7 +726,7 @@ impl<R: Read + Unpin> EntryFields<R> {
             use std::os::unix::prelude::*;
 
             let mode = if preserve { mode } else { mode & 0o777 };
-            let perm = fs::Permissions::from_mode(mode as _);
+            let perm = std::fs::Permissions::from_mode(mode as _);
             match f {
                 Some(f) => f.set_permissions(perm).await,
                 None => fs::set_permissions(dst, perm).await,
@@ -824,13 +825,13 @@ impl<R: Read + Unpin> EntryFields<R> {
 
     async fn validate_inside_dst(&self, dst: &Path, file_dst: &Path) -> io::Result<PathBuf> {
         // Abort if target (canonical) parent is outside of `dst`
-        let canon_parent = file_dst.canonicalize().await.map_err(|err| {
+        let canon_parent = file_dst.canonicalize().map_err(|err| {
             Error::new(
                 err.kind(),
                 format!("{} while canonicalizing {}", err, file_dst.display()),
             )
         })?;
-        let canon_target = dst.canonicalize().await.map_err(|err| {
+        let canon_target = dst.canonicalize().map_err(|err| {
             Error::new(
                 err.kind(),
                 format!("{} while canonicalizing {}", err, dst.display()),
@@ -946,7 +947,7 @@ fn poll_read_all_internal<R: Read + ?Sized>(
             }
         }
 
-        match async_std::task::ready!(rd.as_mut().poll_read(cx, &mut g.buf[g.len..])) {
+        match futures_core::ready!(rd.as_mut().poll_read(cx, &mut g.buf[g.len..])) {
             Ok(0) => {
                 ret = Poll::Ready(Ok(g.len));
                 break;

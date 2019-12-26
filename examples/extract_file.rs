@@ -4,19 +4,18 @@
 //! name as the first argument provided, and then prints the contents of that
 //! file to stdout.
 
-extern crate async_tar;
+extern crate tokio_tar as async_tar;
 
-use async_std::{
+use std::{env::args_os, path::Path};
+use tokio::{
     io::{copy, stdin, stdout},
-    path::Path,
-    prelude::*,
+    stream::*,
 };
-use std::env::args_os;
 
 use async_tar::Archive;
 
 fn main() {
-    async_std::task::block_on(async {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
         let first_arg = args_os().nth(1).unwrap();
         let filename = Path::new(&first_arg);
         let mut ar = Archive::new(stdin());

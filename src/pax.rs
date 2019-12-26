@@ -1,6 +1,6 @@
 use std::{slice, str};
 
-use async_std::io;
+use tokio::io;
 
 use crate::other;
 

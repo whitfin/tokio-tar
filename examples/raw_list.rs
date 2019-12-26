@@ -2,14 +2,14 @@
 //!
 //! Takes a tarball on stdin and prints out all of the entries inside.
 
-extern crate async_tar;
+extern crate tokio_tar as async_tar;
 
-use async_std::{io::stdin, prelude::*};
+use tokio::{io::stdin, stream::*};
 
 use async_tar::Archive;
 
 fn main() {
-    async_std::task::block_on(async {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
         let mut ar = Archive::new(stdin());
         let mut i = 0;
         let mut entries = ar.entries_raw().unwrap();

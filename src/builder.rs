@@ -1,38 +1,44 @@
-use std::borrow::Cow;
-
-use async_std::{
-    fs,
-    io::{self, Read, Write},
-    path::Path,
-    prelude::*,
-};
-
 use crate::{
     header::{bytes2path, path2bytes, HeaderMode},
     other, EntryType, Header,
+};
+use std::{borrow::Cow, fs::Metadata, path::Path};
+use tokio::{
+    fs,
+    io::{self, AsyncRead as Read, AsyncWrite as Write},
+    prelude::*,
+    stream::*,
 };
 
 /// A structure for building archives
 ///
 /// This structure has methods for building up an archive from scratch into any
 /// arbitrary writer.
-pub struct Builder<W: Write + Unpin> {
+pub struct Builder<W: Write + Unpin + Send + 'static> {
     mode: HeaderMode,
     follow: bool,
     finished: bool,
     obj: Option<W>,
+    cancellation: Option<tokio::sync::oneshot::Sender<W>>,
 }
 
-impl<W: Write + Unpin> Builder<W> {
+impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// Create a new archive builder with the underlying object as the
     /// destination of all data written. The builder will use
     /// `HeaderMode::Complete` by default.
     pub fn new(obj: W) -> Builder<W> {
+        let (tx, rx) = tokio::sync::oneshot::channel::<W>();
+        tokio::spawn(async move {
+            if let Ok(mut w) = rx.await {
+                let _ = w.write_all(&[0; 1024]).await;
+            }
+        });
         Builder {
             mode: HeaderMode::Complete,
             follow: true,
             finished: false,
             obj: Some(obj),
+            cancellation: Some(tx),
         }
     }
 
@@ -99,9 +105,9 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_tar::{Builder, Header};
+    /// use tokio_tar::{Builder, Header};
     ///
     /// let mut header = Header::new_gnu();
     /// header.set_path("foo")?;
@@ -154,9 +160,9 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_tar::{Builder, Header};
+    /// use tokio_tar::{Builder, Header};
     ///
     /// let mut header = Header::new_gnu();
     /// header.set_size(4);
@@ -201,9 +207,9 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_tar::Builder;
+    /// use tokio_tar::Builder;
     ///
     /// let mut ar = Builder::new(Vec::new());
     ///
@@ -235,9 +241,9 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_tar::Builder;
+    /// use tokio_tar::Builder;
     ///
     /// let mut ar = Builder::new(Vec::new());
     ///
@@ -281,10 +287,10 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_std::fs::File;
-    /// use async_tar::Builder;
+    /// use tokio::fs::File;
+    /// use tokio_tar::Builder;
     ///
     /// let mut ar = Builder::new(Vec::new());
     ///
@@ -321,10 +327,10 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_std::fs;
-    /// use async_tar::Builder;
+    /// use tokio::fs;
+    /// use tokio_tar::Builder;
     ///
     /// let mut ar = Builder::new(Vec::new());
     ///
@@ -357,10 +363,10 @@ impl<W: Write + Unpin> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { async_std::task::block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
-    /// use async_std::fs;
-    /// use async_tar::Builder;
+    /// use tokio::fs;
+    /// use tokio_tar::Builder;
     ///
     /// let mut ar = Builder::new(Vec::new());
     ///
@@ -564,7 +570,7 @@ async fn prepare_header_link(
 async fn append_fs(
     dst: &mut (dyn Write + Unpin),
     path: &Path,
-    meta: &fs::Metadata,
+    meta: &Metadata,
     read: &mut (dyn Read + Unpin),
     mode: HeaderMode,
     link_name: Option<&Path>,
@@ -594,7 +600,7 @@ async fn append_dir_all(
         let dest = path.join(src.strip_prefix(&src_path).unwrap());
 
         // In case of a symlink pointing to a directory, is_dir is false, but src.is_dir() will return true
-        if is_dir || (is_symlink && follow && src.is_dir().await) {
+        if is_dir || (is_symlink && follow && src.is_dir()) {
             let mut entries = fs::read_dir(&src).await?;
             while let Some(entry) = entries.next().await {
                 let entry = entry?;
@@ -615,10 +621,15 @@ async fn append_dir_all(
     Ok(())
 }
 
-impl<W: Write + Unpin> Drop for Builder<W> {
+impl<W: Write + Unpin + Send + 'static> Drop for Builder<W> {
     fn drop(&mut self) {
-        async_std::task::block_on(async move {
-            let _ = self.finish().await;
-        });
+        // TODO: proper async cancellation
+        if !self.finished {
+            let _ = self
+                .cancellation
+                .take()
+                .unwrap()
+                .send(self.obj.take().unwrap());
+        }
     }
 }

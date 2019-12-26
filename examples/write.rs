@@ -1,10 +1,10 @@
-extern crate async_tar;
+extern crate tokio_tar as async_tar;
 
-use async_std::fs::File;
 use async_tar::Builder;
+use tokio::fs::File;
 
 fn main() {
-    async_std::task::block_on(async {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
         let file = File::create("foo.tar").await.unwrap();
         let mut a = Builder::new(file);
 

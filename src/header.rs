@@ -5,10 +5,11 @@ use std::os::windows::prelude::*;
 
 use std::{borrow::Cow, fmt, iter, iter::repeat, mem, str};
 
-use async_std::{
-    fs, io,
+use std::{
+    fs::Metadata,
     path::{Component, Path, PathBuf},
 };
+use tokio::io;
 
 use crate::{other, EntryType};
 
@@ -275,13 +276,13 @@ impl Header {
     /// This is useful for initializing a `Header` from the OS's metadata from a
     /// file. By default, this will use `HeaderMode::Complete` to include all
     /// metadata.
-    pub fn set_metadata(&mut self, meta: &fs::Metadata) {
+    pub fn set_metadata(&mut self, meta: &Metadata) {
         self.fill_from(meta, HeaderMode::Complete);
     }
 
     /// Sets only the metadata relevant to the given HeaderMode in this header
     /// from the metadata argument provided.
-    pub fn set_metadata_in_mode(&mut self, meta: &fs::Metadata, mode: HeaderMode) {
+    pub fn set_metadata_in_mode(&mut self, meta: &Metadata, mode: HeaderMode) {
         self.fill_from(meta, mode);
     }
 
@@ -689,7 +690,7 @@ impl Header {
             .fold(0, |a, b| a + (*b as u32))
     }
 
-    fn fill_from(&mut self, meta: &fs::Metadata, mode: HeaderMode) {
+    fn fill_from(&mut self, meta: &Metadata, mode: HeaderMode) {
         self.fill_platform_from(meta, mode);
         // Set size of directories to zero
         self.set_size(if meta.is_dir() || meta.file_type().is_symlink() {
@@ -709,12 +710,12 @@ impl Header {
 
     #[cfg(target_arch = "wasm32")]
     #[allow(unused_variables)]
-    fn fill_platform_from(&mut self, meta: &fs::Metadata, mode: HeaderMode) {
+    fn fill_platform_from(&mut self, meta: &Metadata, mode: HeaderMode) {
         unimplemented!();
     }
 
     #[cfg(any(unix, target_os = "redox"))]
-    fn fill_platform_from(&mut self, meta: &fs::Metadata, mode: HeaderMode) {
+    fn fill_platform_from(&mut self, meta: &Metadata, mode: HeaderMode) {
         match mode {
             HeaderMode::Complete => {
                 self.set_mtime(meta.mtime() as u64);
@@ -775,7 +776,7 @@ impl Header {
     }
 
     #[cfg(windows)]
-    fn fill_platform_from(&mut self, meta: &fs::Metadata, mode: HeaderMode) {
+    fn fill_platform_from(&mut self, meta: &Metadata, mode: HeaderMode) {
         // There's no concept of a file mode on Windows, so do a best approximation here.
         match mode {
             HeaderMode::Complete => {
