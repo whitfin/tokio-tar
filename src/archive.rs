@@ -1,6 +1,5 @@
 use pin_project::pin_project;
 use std::{
-    cell::RefCell,
     cmp,
     path::Path,
     pin::Pin,
@@ -14,9 +13,8 @@ use tokio::{
     io,
     prelude::{AsyncRead as Read, *},
     stream::*,
+    sync::Mutex,
 };
-
-use crate::pin_cell::PinCell;
 
 use crate::{
     entry::{EntryFields, EntryIo},
@@ -49,12 +47,12 @@ pub struct ArchiveInner<R> {
     preserve_mtime: bool,
     ignore_zeros: bool,
     #[pin]
-    obj: PinCell<R>,
+    obj: Mutex<R>,
 }
 
 /// Configure the archive.
 pub struct ArchiveBuilder<R: Read + Unpin> {
-    obj: PinCell<R>,
+    obj: R,
     unpack_xattrs: bool,
     preserve_permissions: bool,
     preserve_mtime: bool,
@@ -69,7 +67,7 @@ impl<R: Read + Unpin> ArchiveBuilder<R> {
             preserve_permissions: false,
             preserve_mtime: true,
             ignore_zeros: false,
-            obj: PinCell::new(obj),
+            obj,
         }
     }
 
@@ -129,7 +127,7 @@ impl<R: Read + Unpin> ArchiveBuilder<R> {
                 preserve_permissions,
                 preserve_mtime,
                 ignore_zeros,
-                obj,
+                obj: Mutex::new(obj),
                 pos: 0.into(),
             }),
         }
@@ -145,7 +143,7 @@ impl<R: Read + Unpin + Sync + Send> Archive<R> {
                 preserve_permissions: false,
                 preserve_mtime: true,
                 ignore_zeros: false,
-                obj: PinCell::new(obj),
+                obj: Mutex::new(obj),
                 pos: 0.into(),
             }),
         }
@@ -156,10 +154,7 @@ impl<R: Read + Unpin + Sync + Send> Archive<R> {
         let Self { inner } = self;
 
         match Arc::try_unwrap(inner) {
-            Ok(inner) => {
-                let c: RefCell<R> = inner.obj.into();
-                Ok(c.into_inner())
-            }
+            Ok(inner) => Ok(inner.obj.into_inner()),
             Err(inner) => Err(Self { inner }),
         }
     }
@@ -547,9 +542,13 @@ impl<R: Read + Unpin> Read for Archive<R> {
         cx: &mut Context<'_>,
         into: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        let mut r = Pin::new(&Pin::new(&mut &*self.inner).obj).borrow_mut();
+        let mut r = if let Ok(v) = self.inner.obj.try_lock() {
+            v
+        } else {
+            return Poll::Pending;
+        };
 
-        let res = futures_core::ready!(crate::pin_cell::PinMut::as_mut(&mut r).poll_read(cx, into));
+        let res = futures_core::ready!(Pin::new(&mut *r).poll_read(cx, into));
         match res {
             Ok(i) => {
                 self.inner.pos.fetch_add(i as u64, Ordering::SeqCst);
