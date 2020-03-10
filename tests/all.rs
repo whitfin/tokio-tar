@@ -776,7 +776,7 @@ async fn long_name_trailing_nul() {
     h.set_size(4);
     h.set_entry_type(EntryType::new(b'L'));
     h.set_cksum();
-    t!(b.append(&h, "foo\0".as_bytes()).await);
+    t!(b.append(&h, b"foo\0" as &[u8]).await);
     let mut h = Header::new_gnu();
 
     t!(h.set_path("bar"));
@@ -801,7 +801,7 @@ async fn long_linkname_trailing_nul() {
     h.set_size(4);
     h.set_entry_type(EntryType::new(b'K'));
     h.set_cksum();
-    t!(b.append(&h, "foo\0".as_bytes()).await);
+    t!(b.append(&h, b"foo\0" as &[u8]).await);
     let mut h = Header::new_gnu();
 
     t!(h.set_path("bar"));
@@ -1049,7 +1049,7 @@ async fn name_with_slash_doesnt_fool_long_link_and_bsd_compat() {
     h.set_size(4);
     h.set_entry_type(EntryType::new(b'L'));
     h.set_cksum();
-    t!(ar.append(&h, "foo\0".as_bytes()).await);
+    t!(ar.append(&h, b"foo\0" as &[u8]).await);
 
     let mut header = Header::new_gnu();
     header.set_entry_type(EntryType::Regular);
